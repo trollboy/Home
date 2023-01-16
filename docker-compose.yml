@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:14
+    pull_policy: always
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    volumes:
+      - "pg_data:/var/lib/postgresql/data"
+    expose:
+      - 5432
+    ports:
+      - "5432:5432"
+
+  frontend:
+    image: node:16
+    pull_policy: always
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5000
+    depends_on:
+      - media
+    working_dir: /ui
+    command: bash -c "npm install; npm run dev"
+    volumes:
+      - ./frontend:/ui
+      # cache node build data in the following volume
+      - "node_build:/home/node/.npm"
+      - "node_build:/ui/node_modules"
+    ports:
+      - "35729:35729" #livereload
+
+  # hosts media and frontend, rebuilds done by frontend service and livereload websocket on 35729
+  media:
+    image: rust:1
+    pull_policy: always
+    environment:
+      - DATABASE_URL=postgres://postgres:password@postgres/home
+      # shove all of the build files and incrementals into the system cargo dir to mount as a volume
+      - CARGO_TARGET_DIR=/usr/local/cargo/target
+    depends_on:
+      - postgres
+    working_dir: /app
+    command: bash -c "apt-get install -y libpq-dev libssl-dev pkg-config; cargo install sqlx-cli --no-default-features --features native-tls,postgres; sqlx database setup; cargo run"
+    volumes:
+      - ./media:/app
+      - ./frontend:/ui
+      # cache rust build data in the following volume
+      - "rust_build:/usr/local/cargo"
+    ports:
+      - "8080:8080" #http
+
+volumes:
+  pg_data:
+  rust_build:
+  node_build:
